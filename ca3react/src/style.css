@@ -1,0 +1,9 @@
+.navbar {
+    border-radius: 0 !important;
+}
+
+.categoryList {
+    padding: 0;
+    margin-bottom: 20px;
+    list-style: none;
+}
