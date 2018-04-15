@@ -24,5 +24,74 @@ import javax.ws.rs.container.ResourceInfo;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.ext.Provider;
 
+@Provider
+@Priority(Priorities.AUTHENTICATION)
+public class JWTAuthenticationFilter implements ContainerRequestFilter {
 
-// Insert the filter class here
+ private static final List<Class<? extends Annotation>> securityAnnotations
+         = Arrays.asList(DenyAll.class, PermitAll.class, RolesAllowed.class);
+ @Context
+ private ResourceInfo resourceInfo;
+
+ // Intercept request with filter
+ @Override   
+ public void filter(ContainerRequestContext request) throws IOException {
+     //Check if secure resource
+   if (isSecuredResource()) {
+       
+
+     String token = request.getHeaderString("x-access-token");//
+        //Check if token is included
+     if (token == null) {
+      
+       request.abortWith(exceptions.GenericExceptionMapper.makeErrRes(token, 403));
+       return;
+     }
+     try {
+         
+       UserPrincipal user = getUserPrincipalFromTokenIfValid(token);
+      
+       request.setSecurityContext(new JWTSecurityContext(user, request));
+       
+       // Error response if token is not valid
+     } catch (AuthenticationException | ParseException | JOSEException ex) {
+       Logger.getLogger(JWTAuthenticationFilter.class.getName()).log(Level.SEVERE, null, ex);
+       request.abortWith(exceptions.GenericExceptionMapper.makeErrRes("Token not valid (timed out?)", 403));
+     }
+   }
+ }
+
+ private boolean isSecuredResource() {
+
+   for (Class<? extends Annotation> securityClass : securityAnnotations) {
+     if (resourceInfo.getResourceMethod().isAnnotationPresent(securityClass)) {
+       return true;
+     }
+   }
+   for (Class<? extends Annotation> securityClass : securityAnnotations) {
+     if (resourceInfo.getResourceClass().isAnnotationPresent(securityClass)) {
+       return true;
+     }
+   }
+   return false;
+ }
+
+ private UserPrincipal getUserPrincipalFromTokenIfValid(String token)
+         throws ParseException, JOSEException, AuthenticationException {
+   SignedJWT signedJWT = SignedJWT.parse(token);
+   //Is it a valid token (generated with our shared key)
+   JWSVerifier verifier = new MACVerifier(SharedSecret.getSharedKey());
+
+   if (signedJWT.verify(verifier)) {
+       // Generate UserPrincipal and Security Context
+     if (new Date().getTime() > signedJWT.getJWTClaimsSet().getExpirationTime().getTime()) {
+       throw new AuthenticationException("Your Token is no longer valid");
+     }
+     String roles = signedJWT.getJWTClaimsSet().getClaim("roles").toString();
+     String username = signedJWT.getJWTClaimsSet().getClaim("username").toString();
+     return new UserPrincipal(username, roles);
+   } else {
+     throw new JOSEException("User could not be extracted from token");
+   }
+ }
+}
